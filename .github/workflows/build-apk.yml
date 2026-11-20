@@ -73,19 +73,30 @@ jobs:
               private val captureServiceConnection = object : ServiceConnection {
                   override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
                       captureService = (binder as ProjectionForegroundgroundService.LocalBinder).getService()
+                      waitForForegroundAndCapture(0)
+                  }
+                  private fun waitForForegroundAndCapture(attempt: Int) {
+                      val service = captureService
                       val code = pendingResultCode
                       val data = pendingProjectionData
-                      pendingResultCode = null
-                      pendingProjectionData = null
-                      if (code != null && data != null) {
-                          try {
-                              val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                              projection = manager.getMediaProjection(code, data)
-                              captureOneFrame()
-                          } catch (e: Exception) {
-                              status.text = "Impossible de démarrer la capture : ${e.message ?: "erreur Android"}"
+                      if (service == null || code == null || data == null) return
+                      if (!service.isForegroundReady()) {
+                          if (attempt < 30) {
+                              handler.postDelayed({ waitForForegroundAndCapture(attempt + 1) }, 100)
+                          } else {
+                              status.text = "Le service de capture n'a pas confirmé son démarrage au premier plan. Réessaie."
                               stopProjection()
                           }
+                          return
+                      }
+                      try {
+                          projection = service.createProjection(code, data)
+                          pendingResultCode = null
+                          pendingProjectionData = null
+                          captureOneFrame()
+                      } catch (e: Exception) {
+                          status.text = "Impossible de démarrer la capture : ${e.message ?: "erreur Android"}"
+                          stopProjection()
                       }
                   }
                   override fun onServiceDisconnected(name: ComponentName?) {
@@ -155,6 +166,8 @@ jobs:
           import android.app.Service
           import android.content.Intent
           import android.content.pm.ServiceInfo
+          import android.media.projection.MediaProjection
+          import android.media.projection.MediaProjectionManager
           import android.os.Binder
           import android.os.Build
           import android.os.IBinder
@@ -165,6 +178,16 @@ jobs:
               }
 
               private val binder = LocalBinder()
+              @Volatile private var foregroundReady = false
+
+              fun isForegroundReady(): Boolean = foregroundReady
+
+              fun createProjection(resultCode: Int, data: Intent): MediaProjection {
+                  check(foregroundReady) { "Le service de capture n'est pas encore au premier plan" }
+                  val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                  return manager.getMediaProjection(resultCode, data)
+                      ?: throw IllegalStateException("Android n'a pas créé la session de capture")
+              }
 
               override fun onCreate() {
                   super.onCreate()
@@ -201,12 +224,14 @@ jobs:
                   } else {
                       startForeground(NOTIFICATION_ID, notification)
                   }
+                  foregroundReady = true
                   return START_NOT_STICKY
               }
 
               override fun onBind(intent: Intent?): IBinder = binder
 
               override fun onDestroy() {
+                  foregroundReady = false
                   stopForeground(true)
                   super.onDestroy()
               }
@@ -307,6 +332,18 @@ jobs:
         run: |
           set -euo pipefail
           gradle assembleDebug
+
+      - name: Verify APK identity and Android SDK settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '===== APP GRADLE CONFIG ====='
+          sed -n '1,220p' appsrc/app/build.gradle* || true
+          echo '===== APK PACKAGE AND SDK ====='
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -n "$AAPT"
+          "$AAPT" dump badging appsrc/app/build/outputs/apk/debug/app-debug.apk | head -n 8
+          "$AAPT" dump xmltree appsrc/app/build/outputs/apk/debug/app-debug.apk AndroidManifest.xml | grep -E 'uses-sdk|targetSdkVersion|minSdkVersion|foregroundServiceType|ProjectionForegroundService|FOREGROUND_SERVICE' || true
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
