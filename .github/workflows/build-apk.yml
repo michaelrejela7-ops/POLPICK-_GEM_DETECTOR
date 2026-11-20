@@ -5,30 +5,37 @@ name: Build POLPICK GEM DETECTOR APK
 
 jobs:
   build:
+    name: Build Android APK
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle
+      - name: Set up Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
       - name: Unpack Android source
+        shell: bash
         run: |
-          mkdir appsrc
-          unzip POLPICK_GEM_DETECTOR_V2_SOURCE.zip -d appsrc
+          set -euo pipefail
+          test -f POLPICK_GEM_DETECTOR_V2_SOURCE.zip
+          mkdir -p appsrc
+          unzip -q -o POLPICK_GEM_DETECTOR_V2_SOURCE.zip -d appsrc
 
-      - name: Fix Android Gradle settings
+      - name: Configure Gradle settings
+        shell: bash
         run: |
+          set -euo pipefail
           cat > appsrc/settings.gradle.kts <<'EOF'
           pluginManagement {
               repositories {
@@ -37,7 +44,6 @@ jobs:
                   gradlePluginPortal()
               }
           }
-
           dependencyResolutionManagement {
               repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
               repositories {
@@ -45,164 +51,70 @@ jobs:
                   mavenCentral()
               }
           }
-
           rootProject.name = "PolpickGemDetector"
           include(":app")
           EOF
 
-      - name: Align Java and Kotlin JVM targets
+      - name: Align Java and Kotlin targets
+        shell: bash
         run: |
+          set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+
           app = Path("appsrc/app")
           kts = app / "build.gradle.kts"
           groovy = app / "build.gradle"
+
           if kts.exists():
               p = kts
-              addition = '''
-          
+              addition = """
           android {
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
                   targetCompatibility = JavaVersion.VERSION_17
               }
           }
-          
+
           tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
               kotlinOptions {
                   jvmTarget = "17"
               }
           }
-          '''
+          """
           elif groovy.exists():
               p = groovy
-              addition = '''
-          
+              addition = """
           android {
               compileOptions {
                   sourceCompatibility JavaVersion.VERSION_17
                   targetCompatibility JavaVersion.VERSION_17
               }
           }
-          
+
           tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
               kotlinOptions {
                   jvmTarget = '17'
               }
           }
-          '''
+          """
           else:
-              raise SystemExit("Could not find app/build.gradle or app/build.gradle.kts")
-          p.write_text(p.read_text() + addition)
-          print("Aligned Java and Kotlin compilation targets to JVM 17 in", p)
+              raise SystemExit("Could not find app/build.gradle(.kts)")
+
+          original = p.read_text()
+          if "jvmTarget = \"17\"" not in original and "jvmTarget = '17'" not in original:
+              p.write_text(original + addition)
+          print(f"Java/Kotlin target configured in {p}")
           PY
-
-      - name: Configure MediaProjection foreground service
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          manifest = Path("appsrc/app/src/main/AndroidManifest.xml")
-          xml = manifest.read_text()
-          if "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" not in xml:
-              xml = xml.replace(
-                  '<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>',
-                  '<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\n'
-                  '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>'
-              )
-          service = '<service android:name=".CaptureForegroundService" android:exported="false" android:foregroundServiceType="mediaProjection"/>'
-          if "CaptureForegroundService" not in xml:
-              xml = xml.replace('    </application>', '        ' + service + '\n    </application>')
-          manifest.write_text(xml)
-
-          source = Path("appsrc/app/src/main/java/com/polpick/gemdetector/MainActivity.kt")
-          code = source.read_text()
-          imports = '''
-          import android.app.Service
-          import android.app.Notification
-          import android.app.NotificationChannel
-          import android.app.NotificationManager
-          import android.content.pm.ServiceInfo
-          import android.os.Build
-          import android.os.IBinder
-          '''
-          if "class CaptureForegroundService" not in code:
-              code = code.replace('import android.app.Activity', 'import android.app.Activity' + imports)
-              old_call = '''            projection = manager.getMediaProjection(resultCode, data)
-            captureOneFrame()'''
-              new_call = '''            val serviceIntent = Intent(this, CaptureForegroundService::class.java)
-                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                          startForegroundService(serviceIntent)
-                      } else {
-                          startService(serviceIntent)
-                      }
-                      handler.postDelayed({
-                          try {
-                              projection = manager.getMediaProjection(resultCode, data)
-                              captureOneFrame()
-                          } catch (e: Exception) {
-                              status.text = "Impossible de démarrer la capture : ${e.message ?: "erreur Android"}"
-                              stopProjection()
-                          }
-                      }, 500)
-                      return'''
-              if old_call not in code:
-                  raise SystemExit("Could not locate MediaProjection start block in MainActivity.kt")
-              code = code.replace(old_call, new_call, 1)
-              code = code.replace('''        projection = null
-    }''','''        projection = null
-        stopService(Intent(this, CaptureForegroundService::class.java))
-      }''',1)
-              code += '''
-
-          class CaptureForegroundService : Service() {
-              override fun onCreate() {
-                  super.onCreate()
-                  val channelId = "polpick_screen_capture"
-                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                      val channel = NotificationChannel(
-                          channelId, "Capture d'écran", NotificationManager.IMPORTANCE_LOW
-                      )
-                      getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-                  }
-                  val notification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                      Notification.Builder(this, channelId)
-                  } else {
-                      @Suppress("DEPRECATION")
-                      Notification.Builder(this)
-                  }.setContentTitle("POLPICK GEM DETECTOR")
-                   .setContentText("Capture d'écran autorisée en cours")
-                   .setSmallIcon(android.R.drawable.ic_menu_camera)
-                   .setOngoing(true)
-                   .build()
-                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                      startForeground(77, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
-                  } else {
-                      startForeground(77, notification)
-                  }
-              }
-
-              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int =
-                  START_NOT_STICKY
-
-              override fun onBind(intent: Intent?): IBinder? = null
-          }
-          '''
-          source.write_text(code)
-          print("Configured MediaProjection foreground service and manifest.")
-          PY
-
-      - name: Inspect capture implementation
-        run: |
-          echo '--- AndroidManifest.xml ---'
-          cat appsrc/app/src/main/AndroidManifest.xml
-          echo '--- MainActivity.kt ---'
-          sed -n '1,280p' appsrc/app/src/main/java/com/polpick/gemdetector/MainActivity.kt
 
       - name: Build debug APK
         working-directory: appsrc
-        run: gradle assembleDebug
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle assembleDebug
 
-      - name: Upload APK
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: POLPICK-GEM-DETECTOR-debug-APK
