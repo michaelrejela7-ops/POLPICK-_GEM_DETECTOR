@@ -97,6 +97,13 @@ jobs:
           print("Aligned Java and Kotlin compilation targets to JVM 17 in", p)
           PY
 
+      - name: Inspect capture implementation
+        run: |
+          echo '--- AndroidManifest.xml ---'
+          cat appsrc/app/src/main/AndroidManifest.xml
+          echo '--- MainActivity.kt ---'
+          sed -n '1,280p' appsrc/app/src/main/java/com/polpick/gemdetector/MainActivity.kt
+
       - name: Build debug APK
         working-directory: appsrc
         run: gradle assembleDebug
