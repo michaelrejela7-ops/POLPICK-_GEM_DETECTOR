@@ -106,12 +106,12 @@ jobs:
           if "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" not in xml:
               xml = xml.replace(
                   '<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>',
-                  '<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\\n'
+                  '<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\n'
                   '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>'
               )
           service = '<service android:name=".CaptureForegroundService" android:exported="false" android:foregroundServiceType="mediaProjection"/>'
           if "CaptureForegroundService" not in xml:
-              xml = xml.replace('    </application>', '        ' + service + '\\n    </application>')
+              xml = xml.replace('    </application>', '        ' + service + '\n    </application>')
           manifest.write_text(xml)
 
           source = Path("appsrc/app/src/main/java/com/polpick/gemdetector/MainActivity.kt")
@@ -128,7 +128,7 @@ jobs:
           if "class CaptureForegroundService" not in code:
               code = code.replace('import android.app.Activity', 'import android.app.Activity' + imports)
               old_call = '''            projection = manager.getMediaProjection(resultCode, data)
-                      captureOneFrame()'''
+            captureOneFrame()'''
               new_call = '''            val serviceIntent = Intent(this, CaptureForegroundService::class.java)
                       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                           startForegroundService(serviceIntent)
@@ -149,8 +149,8 @@ jobs:
                   raise SystemExit("Could not locate MediaProjection start block in MainActivity.kt")
               code = code.replace(old_call, new_call, 1)
               code = code.replace('''        projection = null
-      }''','''        projection = null
-          stopService(Intent(this, CaptureForegroundService::class.java))
+    }''','''        projection = null
+        stopService(Intent(this, CaptureForegroundService::class.java))
       }''',1)
               code += '''
 
