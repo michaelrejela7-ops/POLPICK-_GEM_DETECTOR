@@ -1,4 +1,3 @@
-
 name: Build POLPICK GEM DETECTOR APK
 
 on:
@@ -27,6 +26,29 @@ jobs:
         run: |
           mkdir appsrc
           unzip POLPICK_GEM_DETECTOR_V2_SOURCE.zip -d appsrc
+
+      - name: Fix Android Gradle settings
+        run: |
+          cat > appsrc/settings.gradle.kts <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "PolpickGemDetector"
+          include(":app")
+          EOF
 
       - name: Build debug APK
         working-directory: appsrc
