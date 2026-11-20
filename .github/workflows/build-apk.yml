@@ -385,7 +385,7 @@ jobs:
           if path is None:
               raise SystemExit("App Gradle file not found")
           content = path.read_text()
-          pattern = r"(versionCode\\s*(?:=\\s*)?)(\\d+)"
+          pattern = r"(versionCode\s*(?:=\s*)?)(\d+)"
           matches = list(re.finditer(pattern, content))
           if len(matches) != 1:
               raise SystemExit(f"Expected exactly one numeric versionCode, found {len(matches)}")
