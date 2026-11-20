@@ -255,79 +255,37 @@ jobs:
           a = activity.read_text()
           s = service.read_text()
 
+          # Add diagnostic logging using stable code tokens, not indentation-sensitive blocks.
           if "import android.util.Log" not in a:
-              a = a.replace("import android.graphics.Typeface\n", "import android.graphics.Typeface\nimport android.util.Log\n")
+              a = a.replace("package com.polpick.gemdetector\\n",
+                            "package com.polpick.gemdetector\\n\\nimport android.util.Log\\n", 1)
           if "import android.util.Log" not in s:
-              s = s.replace("import android.os.IBinder\n", "import android.os.IBinder\nimport android.util.Log\n")
+              s = s.replace("package com.polpick.gemdetector\\n",
+                            "package com.polpick.gemdetector\\n\\nimport android.util.Log\\n", 1)
 
-          a = a.replace(
-              "            captureService = (binder as ProjectionForegroundService.LocalBinder).getService()\n            waitForForegroundAndCapture(0)",
-              "            captureService = (binder as ProjectionForegroundService.LocalBinder).getService()\n"
-              "            Log.e(\"PGD_DIAG\", \"Activity: onServiceConnected; SDK=\" + Build.VERSION.SDK_INT)\n"
-              "            status.text = \"DIAG : service connecté ; Android API ${Build.VERSION.SDK_INT}\"\n"
-              "            waitForForegroundAndCapture(0)"
-          )
-          a = a.replace(
-              "                    status.text = \"Le service de capture n'a pas confirmé son démarrage au premier plan. Réessaie.\"\n                    stopProjection()",
-              "                    status.text = \"DIAG ÉCHEC : service jamais prêt après 3 secondes. API=${Build.VERSION.SDK_INT}. Garde cette page ouverte.\"\n"
-              "                    Log.e(\"PGD_DIAG\", \"Service not foreground-ready after 30 checks\")"
-          )
-          a = a.replace(
-              "            try {\n                projection = service.createProjection(code, data)",
-              "            try {\n"
-              "                status.text = \"DIAG : foregroundReady=true ; appel getMediaProjection ; API=${Build.VERSION.SDK_INT}\"\n"
-              "                Log.e(\"PGD_DIAG\", \"Before getMediaProjection; SDK=\" + Build.VERSION.SDK_INT + \"; manufacturer=\" + Build.MANUFACTURER + \"; model=\" + Build.MODEL)\n"
-              "                projection = service.createProjection(code, data)\n"
-              "                Log.e(\"PGD_DIAG\", \"getMediaProjection SUCCESS\")"
-          )
-          a = a.replace(
-              "            } catch (e: Exception) {\n                status.text = \"Impossible de démarrer la capture : ${e.message ?: \"erreur Android\"}\"\n                stopProjection()",
-              "            } catch (e: Exception) {\n"
-              "                Log.e(\"PGD_DIAG\", \"getMediaProjection FAILED\", e)\n"
-              "                status.text = \"DIAGNOSTIC - ERREUR\\nAPI=${Build.VERSION.SDK_INT} ; ${Build.MANUFACTURER} ${Build.MODEL}\\n${e.javaClass.name}: ${e.message}\\n\\n${Log.getStackTraceString(e)}\\n\\nNe ferme pas l'application : le service est conservé pour le diagnostic.\""
-          )
-          a = a.replace(
-              "        try {\n            pendingResultCode = resultCode",
-              "        try {\n"
-              "            status.text = \"DIAG : autorisation reçue ; démarrage du service ; API=${Build.VERSION.SDK_INT}\"\n"
-              "            Log.e(\"PGD_DIAG\", \"Screen capture consent received; starting service; SDK=\" + Build.VERSION.SDK_INT)\n"
-              "            pendingResultCode = resultCode"
-          )
-          a = a.replace(
-              "        } catch (e: Exception) {\n            status.text = \"Impossible de démarrer le service de capture : ${e.message ?: \"erreur Android\"}\"\n            stopProjection()",
-              "        } catch (e: Exception) {\n"
-              "            Log.e(\"PGD_DIAG\", \"Starting/binding service FAILED\", e)\n"
-              "            status.text = \"DIAGNOSTIC - DÉMARRAGE SERVICE ÉCHOUÉ\\nAPI=${Build.VERSION.SDK_INT}\\n${e.javaClass.name}: ${e.message}\\n\\n${Log.getStackTraceString(e)}\""
-          )
+          token = "projection = service.createProjection(code, data)"
+          if token not in a:
+              raise SystemExit("Cannot find getMediaProjection call in MainActivity; refusing build")
+          a = a.replace(token,
+              'Log.e("PGD_DIAG", "BEFORE getMediaProjection; SDK=" + Build.VERSION.SDK_INT + "; model=" + Build.MODEL)\\n'
+              + "                          " + token + "\\n"
+              + '                          Log.e("PGD_DIAG", "getMediaProjection SUCCESS")', 1)
 
-          s = s.replace(
-              "                super.onCreate()",
-              "                super.onCreate()\n"
-              "                Log.e(\"PGD_DIAG\", \"Service onCreate; SDK=\" + Build.VERSION.SDK_INT)"
-          )
-          s = s.replace(
-              "            override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {",
-              "            override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {\n"
-              "                Log.e(\"PGD_DIAG\", \"Service onStartCommand; SDK=\" + Build.VERSION.SDK_INT)"
-          )
-          s = s.replace(
-              "                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {\n                    startForeground(",
-              "                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {\n"
-              "                    Log.e(\"PGD_DIAG\", \"Calling 3-arg startForeground; type=MEDIA_PROJECTION\")\n"
-              "                    startForeground("
-          )
-          s = s.replace(
-              "                foregroundReady = true\n                return START_NOT_STICKY",
-              "                foregroundReady = true\n"
-              "                Log.e(\"PGD_DIAG\", \"startForeground SUCCESS; foregroundReady=true\")\n"
-              "                return START_NOT_STICKY"
-          )
+          token = "foregroundReady = true"
+          if token not in s:
+              raise SystemExit("Cannot find foregroundReady marker in service; refusing build")
+          s = s.replace(token,
+              'Log.e("PGD_DIAG", "startForeground completed; SDK=" + Build.VERSION.SDK_INT)\\n'
+              + "                  " + token, 1)
 
-          if "Before getMediaProjection" not in a or "startForeground SUCCESS" not in s:
-              raise SystemExit("Diagnostic patch did not match expected APK 18 source; refusing build")
+          token = "override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {"
+          if token not in s:
+              raise SystemExit("Cannot find onStartCommand in service; refusing build")
+          s = s.replace(token, token + '\\n                  Log.e("PGD_DIAG", "onStartCommand entered; SDK=" + Build.VERSION.SDK_INT)', 1)
+
           activity.write_text(a)
           service.write_text(s)
-          print("Runtime diagnostic stages added")
+          print("Runtime diagnostic markers inserted")
           PY
 
       - name: Inspect capture implementation
