@@ -372,6 +372,29 @@ jobs:
           print(f"Java/Kotlin target configured in {p}")
           PY
 
+      - name: Increment APK version code for diagnostic build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          candidates = [Path("appsrc/app/build.gradle.kts"), Path("appsrc/app/build.gradle")]
+          path = next((p for p in candidates if p.exists()), None)
+          if path is None:
+              raise SystemExit("App Gradle file not found")
+          content = path.read_text()
+          pattern = r"(versionCode\\s*(?:=\\s*)?)(\\d+)"
+          matches = list(re.finditer(pattern, content))
+          if len(matches) != 1:
+              raise SystemExit(f"Expected exactly one numeric versionCode, found {len(matches)}")
+          old = int(matches[0].group(2))
+          content = re.sub(pattern, lambda m: m.group(1) + str(old + 1), content, count=1)
+          path.write_text(content)
+          print(f"Diagnostic APK versionCode: {old} -> {old + 1}")
+          PY
+
       - name: Build debug APK
         working-directory: appsrc
         shell: bash
