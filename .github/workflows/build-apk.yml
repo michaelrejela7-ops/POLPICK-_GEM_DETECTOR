@@ -32,6 +32,15 @@ jobs:
           mkdir -p appsrc
           unzip -q -o POLPICK_GEM_DETECTOR_V2_SOURCE.zip -d appsrc
 
+      - name: Inspect capture implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '===== ANDROID MANIFEST ====='
+          cat appsrc/app/src/main/AndroidManifest.xml
+          echo '===== MAIN ACTIVITY ====='
+          cat appsrc/app/src/main/java/com/polpick/gemdetector/MainActivity.kt
+
       - name: Configure Gradle settings
         shell: bash
         run: |
