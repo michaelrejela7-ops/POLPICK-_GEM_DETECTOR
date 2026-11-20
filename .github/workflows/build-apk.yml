@@ -97,6 +97,100 @@ jobs:
           print("Aligned Java and Kotlin compilation targets to JVM 17 in", p)
           PY
 
+      - name: Configure MediaProjection foreground service
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          manifest = Path("appsrc/app/src/main/AndroidManifest.xml")
+          xml = manifest.read_text()
+          if "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" not in xml:
+              xml = xml.replace(
+                  '<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>',
+                  '<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\\n'
+                  '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>'
+              )
+          service = '<service android:name=".CaptureForegroundService" android:exported="false" android:foregroundServiceType="mediaProjection"/>'
+          if "CaptureForegroundService" not in xml:
+              xml = xml.replace('    </application>', '        ' + service + '\\n    </application>')
+          manifest.write_text(xml)
+
+          source = Path("appsrc/app/src/main/java/com/polpick/gemdetector/MainActivity.kt")
+          code = source.read_text()
+          imports = '''
+          import android.app.Service
+          import android.app.Notification
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.content.pm.ServiceInfo
+          import android.os.Build
+          import android.os.IBinder
+          '''
+          if "class CaptureForegroundService" not in code:
+              code = code.replace('import android.app.Activity', 'import android.app.Activity' + imports)
+              old_call = '''            projection = manager.getMediaProjection(resultCode, data)
+                      captureOneFrame()'''
+              new_call = '''            val serviceIntent = Intent(this, CaptureForegroundService::class.java)
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                          startForegroundService(serviceIntent)
+                      } else {
+                          startService(serviceIntent)
+                      }
+                      handler.postDelayed({
+                          try {
+                              projection = manager.getMediaProjection(resultCode, data)
+                              captureOneFrame()
+                          } catch (e: Exception) {
+                              status.text = "Impossible de démarrer la capture : ${e.message ?: "erreur Android"}"
+                              stopProjection()
+                          }
+                      }, 500)
+                      return'''
+              if old_call not in code:
+                  raise SystemExit("Could not locate MediaProjection start block in MainActivity.kt")
+              code = code.replace(old_call, new_call, 1)
+              code = code.replace('''        projection = null
+      }''','''        projection = null
+          stopService(Intent(this, CaptureForegroundService::class.java))
+      }''',1)
+              code += '''
+
+          class CaptureForegroundService : Service() {
+              override fun onCreate() {
+                  super.onCreate()
+                  val channelId = "polpick_screen_capture"
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      val channel = NotificationChannel(
+                          channelId, "Capture d'écran", NotificationManager.IMPORTANCE_LOW
+                      )
+                      getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+                  }
+                  val notification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      Notification.Builder(this, channelId)
+                  } else {
+                      @Suppress("DEPRECATION")
+                      Notification.Builder(this)
+                  }.setContentTitle("POLPICK GEM DETECTOR")
+                   .setContentText("Capture d'écran autorisée en cours")
+                   .setSmallIcon(android.R.drawable.ic_menu_camera)
+                   .setOngoing(true)
+                   .build()
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                      startForeground(77, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+                  } else {
+                      startForeground(77, notification)
+                  }
+              }
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int =
+                  START_NOT_STICKY
+
+              override fun onBind(intent: Intent?): IBinder? = null
+          }
+          '''
+          source.write_text(code)
+          print("Configured MediaProjection foreground service and manifest.")
+          PY
+
       - name: Inspect capture implementation
         run: |
           echo '--- AndroidManifest.xml ---'
