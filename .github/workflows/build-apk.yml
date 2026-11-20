@@ -257,31 +257,31 @@ jobs:
 
           # Add diagnostic logging using stable code tokens, not indentation-sensitive blocks.
           if "import android.util.Log" not in a:
-              a = a.replace("package com.polpick.gemdetector\\n",
-                            "package com.polpick.gemdetector\\n\\nimport android.util.Log\\n", 1)
+              a = a.replace("package com.polpick.gemdetector\n",
+                            "package com.polpick.gemdetector\n\nimport android.util.Log\n", 1)
           if "import android.util.Log" not in s:
-              s = s.replace("package com.polpick.gemdetector\\n",
-                            "package com.polpick.gemdetector\\n\\nimport android.util.Log\\n", 1)
+              s = s.replace("package com.polpick.gemdetector\n",
+                            "package com.polpick.gemdetector\n\nimport android.util.Log\n", 1)
 
           token = "projection = service.createProjection(code, data)"
           if token not in a:
               raise SystemExit("Cannot find getMediaProjection call in MainActivity; refusing build")
           a = a.replace(token,
-              'Log.e("PGD_DIAG", "BEFORE getMediaProjection; SDK=" + Build.VERSION.SDK_INT + "; model=" + Build.MODEL)\\n'
-              + "                          " + token + "\\n"
+              'Log.e("PGD_DIAG", "BEFORE getMediaProjection; SDK=" + Build.VERSION.SDK_INT + "; model=" + Build.MODEL)\n'
+              + "                          " + token + "\n"
               + '                          Log.e("PGD_DIAG", "getMediaProjection SUCCESS")', 1)
 
           token = "foregroundReady = true"
           if token not in s:
               raise SystemExit("Cannot find foregroundReady marker in service; refusing build")
           s = s.replace(token,
-              'Log.e("PGD_DIAG", "startForeground completed; SDK=" + Build.VERSION.SDK_INT)\\n'
+              'Log.e("PGD_DIAG", "startForeground completed; SDK=" + Build.VERSION.SDK_INT)\n'
               + "                  " + token, 1)
 
           token = "override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {"
           if token not in s:
               raise SystemExit("Cannot find onStartCommand in service; refusing build")
-          s = s.replace(token, token + '\\n                  Log.e("PGD_DIAG", "onStartCommand entered; SDK=" + Build.VERSION.SDK_INT)', 1)
+          s = s.replace(token, token + '\n                  Log.e("PGD_DIAG", "onStartCommand entered; SDK=" + Build.VERSION.SDK_INT)', 1)
 
           activity.write_text(a)
           service.write_text(s)
