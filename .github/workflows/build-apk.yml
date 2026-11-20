@@ -50,6 +50,53 @@ jobs:
           include(":app")
           EOF
 
+      - name: Align Java and Kotlin JVM targets
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          app = Path("appsrc/app")
+          kts = app / "build.gradle.kts"
+          groovy = app / "build.gradle"
+          if kts.exists():
+              p = kts
+              addition = '''
+          
+          android {
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+          }
+          
+          tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+          '''
+          elif groovy.exists():
+              p = groovy
+              addition = '''
+          
+          android {
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          
+          tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+              kotlinOptions {
+                  jvmTarget = '17'
+              }
+          }
+          '''
+          else:
+              raise SystemExit("Could not find app/build.gradle or app/build.gradle.kts")
+          p.write_text(p.read_text() + addition)
+          print("Aligned Java and Kotlin compilation targets to JVM 17 in", p)
+          PY
+
       - name: Build debug APK
         working-directory: appsrc
         run: gradle assembleDebug
