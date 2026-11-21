@@ -1,0 +1,52 @@
+name: Inspect legacy source archives
+
+on:
+  push:
+    branches:
+      - next-clean-start-inspection
+    paths:
+      - .github/workflows/inspect-sources.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout inspection branch
+        uses: actions/checkout@v4
+
+      - name: List and print source files from ZIP archives
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import zipfile
+          from pathlib import Path
+
+          archives = [
+              Path("POLPICK_GEM_DETECTOR_V2_SOURCE.zip"),
+              Path("Compressedfile.zip"),
+          ]
+
+          for archive in archives:
+              print("\\n" + "=" * 90)
+              print("ARCHIVE:", archive)
+              if not archive.exists():
+                  print("NOT FOUND")
+                  continue
+              with zipfile.ZipFile(archive) as z:
+                  for info in z.infolist():
+                      print(f"FILE: {info.filename} | SIZE: {info.file_size}")
+                  for info in z.infolist():
+                      if info.is_dir() or info.file_size > 40000:
+                          continue
+                      name = info.filename.lower()
+                      if name.endswith((".kt", ".java", ".xml", ".gradle", ".kts", ".properties", ".md", ".txt")):
+                          print("\\n" + "-" * 90)
+                          print("SOURCE:", info.filename)
+                          try:
+                              print(z.read(info.filename).decode("utf-8", errors="replace"))
+                          except Exception as exc:
+                              print("READ ERROR:", exc)
+          PY
