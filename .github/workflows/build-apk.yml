@@ -41,20 +41,50 @@ jobs:
 
           base = Path("appsrc/app/src/main")
           manifest = base / "AndroidManifest.xml"
-          text = manifest.read_text()
-          if "ProjectionForegroundService" not in text:
-              text = text.replace(
-                  '<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>',
-                  '<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\n'
-                  '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>'
+
+          # Patch the manifest independently of whether the service name already exists.
+          # The previous all-or-nothing check could skip the foregroundServiceType
+          # attribute when a service declaration was already present.
+          import xml.etree.ElementTree as ET
+
+          ANDROID = "{http://schemas.android.com/apk/res/android}"
+          tree = ET.parse(manifest)
+          root = tree.getroot()
+
+          for permission in (
+              "android.permission.FOREGROUND_SERVICE",
+              "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION",
+          ):
+              found = any(
+                  node.get(ANDROID + "name") == permission
+                  for node in root.findall("uses-permission")
               )
-              text = text.replace(
-                  '    </application>',
-                  '        <service android:name=".ProjectionForegroundService" '
-                  'android:exported="false" android:foregroundServiceType="mediaProjection"/>\n'
-                  '    </application>'
-              )
-              manifest.write_text(text)
+              if not found:
+                  ET.SubElement(root, "uses-permission", {ANDROID + "name": permission})
+
+          application = root.find("application")
+          if application is None:
+              raise SystemExit("AndroidManifest.xml has no <application> element")
+
+          service = None
+          for node in application.findall("service"):
+              name = node.get(ANDROID + "name", "")
+              if name in (
+                  ".ProjectionForegroundService",
+                  "com.polpick.gemdetector.ProjectionForegroundService",
+              ):
+                  service = node
+                  break
+
+          if service is None:
+              service = ET.SubElement(application, "service")
+
+          service.set(ANDROID + "name", ".ProjectionForegroundService")
+          service.set(ANDROID + "exported", "false")
+          service.set(ANDROID + "foregroundServiceType", "mediaProjection")
+
+          ET.register_namespace("android", "http://schemas.android.com/apk/res/android")
+          tree.write(manifest, encoding="utf-8", xml_declaration=True)
 
           kt = base / "java/com/polpick/gemdetector"
           kt.mkdir(parents=True, exist_ok=True)
