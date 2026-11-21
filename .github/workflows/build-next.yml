@@ -2,14 +2,6 @@ name: Build POLPICK GEM DETECTOR NEXT
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - polpick-next-clean
-    paths:
-      - "app/**"
-      - "*.gradle.kts"
-      - "gradle.properties"
-      - ".github/workflows/build-next.yml"
 
 permissions:
   contents: read
@@ -27,11 +19,29 @@ jobs:
           java-version: "17"
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-      - name: Build debug APK
-        run: gradle --no-daemon assembleDebug
+      - name: Prepare stable signing key
+        env:
+          POLPICK_KEYSTORE_BASE64: ${{ secrets.POLPICK_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$POLPICK_KEYSTORE_BASE64" ]; then
+            echo "::error::Missing repository secret POLPICK_KEYSTORE_BASE64"
+            exit 1
+          fi
+          echo "$POLPICK_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/polpick-next-signing.jks"
+      - name: Build APK with stable signature
+        env:
+          POLPICK_KEYSTORE_PATH: ${{ runner.temp }}/polpick-next-signing.jks
+          POLPICK_KEYSTORE_PASSWORD: ${{ secrets.POLPICK_KEYSTORE_PASSWORD }}
+          POLPICK_KEY_ALIAS: ${{ secrets.POLPICK_KEY_ALIAS }}
+          POLPICK_KEY_PASSWORD: ${{ secrets.POLPICK_KEY_PASSWORD }}
+        run: |
+          test -n "$POLPICK_KEYSTORE_PASSWORD"
+          test -n "$POLPICK_KEY_ALIAS"
+          test -n "$POLPICK_KEY_PASSWORD"
+          gradle --no-daemon assembleDebug
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: polpick-gem-detector-next-debug
+          name: polpick-gem-detector-next-stable
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
